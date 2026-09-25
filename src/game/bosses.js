@@ -38,6 +38,9 @@ export class Walker {
     this.pos = new THREE.Vector3(def.x, 0, def.z);
     this.scale = def.scale ?? 1;
     obj.scale.setScalar(this.scale);
+    // Hit spheres and stomp reach follow the machine's real size, not just its
+    // scale: Järnjätten's model is ~2.7x the 4 m walker these numbers were made for.
+    this.size = def.size ?? (def.kind === 'jatte' ? 2.4 : 1) * this.scale;
     this.yaw = def.rot ?? 0;
     this.hp = 100;
     this.maxHp = 100;
@@ -62,15 +65,15 @@ export class Walker {
     return p;
   }
 
-  bodyCenter() { return this.pos.clone().setY(this.pos.y + 2.4 * this.scale); }
+  bodyCenter() { return this.pos.clone().setY(this.pos.y + 2.4 * this.size); }
 
   aimPoint() { return this.stun > 0 ? this.headPos() : this.bodyCenter(); }
 
   hitTest(origin, dir, maxDist) {
     if (this.dead) return null;
-    const h = sphereHit(origin, dir, this.headPos(), 0.7 * this.scale, maxDist);
+    const h = sphereHit(origin, dir, this.headPos(), 0.7 * this.size, maxDist);
     if (h !== null) return { dist: h, part: 'head' };
-    const b = sphereHit(origin, dir, this.bodyCenter(), 1.6 * this.scale, maxDist);
+    const b = sphereHit(origin, dir, this.bodyCenter(), 1.6 * this.size, maxDist);
     return b !== null ? { dist: b, part: 'body' } : null;
   }
 
@@ -151,7 +154,7 @@ export class Walker {
       audio.play('walker_roar', { pos: this.pos, volume: 0.6, rate: 1.4 });
     }
     // Stomp when the player gets under it.
-    if (Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < 2.8 * this.scale) {
+    if (Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < 2.8 * this.size) {
       this.stompCd = (this.stompCd ?? 0) - dt;
       if (this.stompCd <= 0) {
         this.stompCd = 2;

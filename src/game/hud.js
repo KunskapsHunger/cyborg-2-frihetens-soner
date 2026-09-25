@@ -69,7 +69,12 @@ export class HUD {
   nextSub() {
     this.subtitle = this.subQueue.shift() ?? null;
     if (this.subtitle?.callback) { const cb = this.subtitle.callback; this.subtitle = null; cb(); this.nextSub(); return; }
-    if (this.subtitle?.voiceId) voice.play(this.subtitle.voiceId);
+    // Voiced subtitles stay up until the clip has really ended (loading can delay it).
+    const s = this.subtitle;
+    if (s?.voiceId && voice.has(s.voiceId)) {
+      s.time += 3;
+      voice.play(s.voiceId, { onEnd: () => { if (this.subtitle === s) s.time = Math.min(s.time, 0.45); } });
+    }
   }
 
   update(dt) {
@@ -221,7 +226,6 @@ export class HUD {
     // Patrol routes of guards read with "lyssna in".
     for (const guard of game.guards) {
       if (!guard.active || !(guard.scannedT > 0) || !guard.path) continue;
-      guard.scannedT -= 1 / 60;
       g.fillStyle = 'rgba(120,240,255,0.7)';
       const pts = guard.path;
       for (let i = 0; i < pts.length; i++) {

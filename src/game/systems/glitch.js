@@ -19,6 +19,7 @@ export class Glitch {
 
   clear() {
     for (const m of this.flipped ?? []) this.restore(m);
+    for (const m of this.meshes) m.wire?.dispose();
     this.meshes = [];
     this.level = 0;
   }
@@ -29,9 +30,12 @@ export class Glitch {
   }
 
   flip(m) {
-    // A cloned material in wireframe, glowing like the simulation grid.
-    m.wire ??= Object.assign(m.mat.clone(), { wireframe: true });
-    m.wire.uniforms = { ...m.mat.uniforms, uLit: { value: 0 }, uColor: { value: m.mat.uniforms.uColor.value.clone().setRGB(0.3, 0.95, 1.1) }, uHasMap: { value: 0 } };
+    // A wireframe copy glowing like the simulation grid, built once per mesh
+    // (it keeps the shared light uniforms).
+    if (!m.wire) {
+      m.wire = Object.assign(m.mat.clone(), { wireframe: true });
+      m.wire.uniforms = { ...m.mat.uniforms, uLit: { value: 0 }, uColor: { value: m.mat.uniforms.uColor.value.clone().setRGB(0.3, 0.95, 1.1) }, uHasMap: { value: 0 } };
+    }
     m.o.material = m.wire;
     this.flipped.add(m);
   }

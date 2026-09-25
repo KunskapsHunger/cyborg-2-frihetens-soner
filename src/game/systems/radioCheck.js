@@ -70,9 +70,17 @@ export class RadioCheck {
       { x: m.x, z: m.z, rot: m.yaw ?? 0, group: 'r', reinforcement: true, shield: true, index: 900 + this.squads * 2 },
       { x: m.x + 1.2, z: m.z + 0.6, rot: m.yaw ?? 0, group: 'r', reinforcement: true, index: 901 + this.squads * 2 },
     ];
+    const token = game.loadToken;
+    const world = game.world, actors = game.actors;
     for (const def of defs) {
-      const g = await spawnGuard(def, game.world, game.actors);
-      g.shadow = makeShadow(game.actors, 0.9);
+      const g = await spawnGuard(def, world, actors);
+      // The level may have been left (death, restart) while the squad loaded.
+      if (game.loadToken !== token || game.world !== world) {
+        g.obj.parent?.remove(g.obj);
+        g.cone?.dispose();
+        return;
+      }
+      g.shadow = makeShadow(actors, 0.9);
       g.state = 'search';
       g.searchT = 20;
       g.investigate = game.alarm.lastKnown?.clone() ?? game.player.pos.clone();

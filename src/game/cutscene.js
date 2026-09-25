@@ -37,6 +37,9 @@ export class CutscenePlayer {
   /** Play a cutscene by id. Resolves (and calls onDone) when it ends or is skipped. */
   async play(id, onDone) {
     const g = this.game;
+    // Only one cutscene at a time: a new one ends the current (its onDone still fires).
+    if (this.active) this.finish();
+    const token = (this.seq = (this.seq ?? 0) + 1);
     const cs = CUTSCENES[id];
     // A level may stage one cutscene differently from others in the same scene.
     const stage = g.level?.stages?.[id] ?? g.level?.stages?.[cs?.scene];
@@ -45,12 +48,22 @@ export class CutscenePlayer {
       onDone?.();
       return;
     }
+    // Decode every line before the first beat, so no clip starts late and gets cut
+    // off by the next beat (give up waiting after a few seconds on slow links).
+    const ids = cs.beats.map((b, i) => (b.line ? cutsceneVoiceId(id, i) : null)).filter(Boolean);
+    const loaded = voice.preload(ids);
     const actors = new Map();
-    await Promise.all((cs.actors ?? []).map(async (name) => {
+    await Promise.all([loaded, ...(cs.actors ?? []).map(async (name) => {
       const spot = stage.actors?.[name] ?? { x: g.player.pos.x, z: g.player.pos.z };
       const npc = await spawnNPC({ id: name, model: spot.model ?? ACTOR_MODELS[name] ?? 'civilian2', x: spot.x, z: spot.z, y: spot.y, rot: spot.rot ?? 0, pose: spot.pose, tint: spot.tint }, g.world, g.actors);
       actors.set(name, npc);
-    }));
+    })].map((p) => Promise.race([p, new Promise((r) => setTimeout(r, 4000))])));
+    if (token !== this.seq || this.active) {
+      // Superseded while loading: drop our actors and let our caller continue.
+      for (const npc of actors.values()) g.actors.remove(npc.obj);
+      onDone?.();
+      return;
+    }
     this.active = { id, cs, stage, actors, beat: -1, t: 0, dur: 0, onDone, cam: null };
     g.player.obj.visible = false;
     g.player.shadow && (g.player.shadow.visible = false);
@@ -81,14 +94,22 @@ export class CutscenePlayer {
     const line = beat.line;
     if (line) {
       const vid = cutsceneVoiceId(a.id, a.beat);
-      const dur = voice.has(vid) ? voice.duration(vid) : Math.max(2, line.text.length * 0.062);
-      a.dur = (beat.hold ?? 0) + dur + 0.5;
-      this.game.hud.subtitle = { who: line.who, text: line.text, inner: !!line.inner, time: a.dur, cinema: true };
-      voice.play(vid);
+      const voiced = voice.has(vid);
+      const dur = voiced ? voice.duration(vid) : Math.max(2, line.text.length * 0.062);
+      const hold = beat.hold ?? 0;
+      a.drift = hold + dur + 0.5;
+      // A voiced beat lasts until its clip has actually finished (plus a breath);
+      // the extra seconds are only a safety net if audio never reports the end.
+      a.dur = voiced ? a.drift + 3 : a.drift;
+      this.game.hud.subtitle = { who: line.who, text: line.text, inner: !!line.inner, time: 1e9, cinema: true };
+      const beatIndex = a.beat;
+      if (voiced) voice.play(vid, { onEnd: () => { if (this.active === a && a.beat === beatIndex) a.dur = Math.min(a.dur, a.t + hold + 0.45); } });
+      else voice.stop();
       const speaker = this.actor(line.who);
       if (speaker) speaker.talking = dur;
     } else {
       a.dur = beat.hold ?? 2.5;
+      a.drift = a.dur;
       this.game.hud.subtitle = null;
     }
   }
@@ -222,7 +243,7 @@ export class CutscenePlayer {
       cam.position.lerp(want, Math.min(1, dt * 3));
       cam.lookAt(up(t.pos, 1.3));
     } else {
-      const k = Math.min(1, a.t / Math.max(1, a.dur));
+      const k = Math.min(1, a.t / Math.max(1, a.drift ?? a.dur));
       const e = k * k * (3 - 2 * k);
       cam.position.lerpVectors(c.from, c.to, e);
       cam.lookAt(c.look);
@@ -257,8 +278,8 @@ export class CutscenePlayer {
     g.camera.fov = 60;
     g.camera.updateProjectionMatrix();
     g.hud.subtitle = null;
-    g.player.obj.visible = true;
-    if (g.player.shadow) g.player.shadow.visible = true;
+    g.player.obj.visible = !g.player.hidden;
+    if (g.player.shadow) g.player.shadow.visible = !g.player.hidden;
     g.cam.snap(g.player.pos, g.cam.yaw);
     a.onDone?.();
   }

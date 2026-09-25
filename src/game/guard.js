@@ -361,7 +361,7 @@ export class Guard {
     const move = this.goTo(dt, grid, target);
     if (!move) {
       this.trackIndex = next.index;
-      if (next.index >= ctx.footprints.newestIndex) {
+      if (next.index >= ctx.footprints.newestId) {
         this.state = 'search';
         this.searchT = 7;
         this.investigate = target;

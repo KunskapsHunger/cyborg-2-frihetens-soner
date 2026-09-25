@@ -49,6 +49,8 @@ export class Scan {
 
   update(game, dt) {
     const p = game.player;
+    // Scanned patrol routes stay on the radar for a few seconds.
+    for (const gd of game.guards) if (gd.scannedT > 0) gd.scannedT -= dt;
     const held = game.input.isDown('KeyR') && !p.hidden && !p.dead && p.energy > 1;
     if (held && !this.active) audio.play('scan_on', { volume: 0.7 });
     this.active = held;

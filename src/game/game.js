@@ -94,7 +94,10 @@ export class Game {
     this.bossActive = false;
     this.barkCd = 0;
     this.loadToken = 0;
-    this.onBossDown = (b) => { this.bossActive = false; audio.playMusic(this.level?.music ?? null, 2); this.level?.script?.bossDown?.(this, b); };
+    this.onBossDown = (b) => {
+      // Killing a person-boss (Vargen, Minnesläsaren) with live rounds is a kill.
+      if (b.killedLethal) this.stats.kills += 1;
+      this.bossActive = false; audio.playMusic(this.level?.music ?? null, 2); this.level?.script?.bossDown?.(this, b); };
     this.onBossPhase = (b, phase) => this.level?.script?.bossPhase?.(this, b, phase);
     this.player.onStep = (cell) => this.footstep(cell);
     this.player.onNoise = (pos, r) => this.emitNoise(pos, r);
@@ -189,13 +192,18 @@ export class Game {
     const s = this.save.load();
     if (!s) { this.newGame(); return; }
     this.flags = { ...s.flags };
-    this.stats = { ...freshStats(), ...s.stats };
+    // Retries since the checkpoint are not in the save: keep the higher count.
+    const continues = Math.max(this.stats?.continues ?? 0, s.stats?.continues ?? 0);
+    this.stats = { ...freshStats(), ...s.stats, continues };
     this.startChapter(s.chapter, s);
   }
 
   async startChapter(id, restore = null, opts = {}) {
     const ch = CHAPTERS.find((c) => c.id === id) ?? CHAPTERS[0];
     this.input.exitLock();
+    // Close the title/pause menu first: left open, it keeps reading Enter under
+    // the comic and would start the chapter over on every page turn.
+    this.ui.close();
     this.state = 'loading';
     if (!restore && ch.comic && !opts.skipComic) {
       await this.comics.play(ch.comic);
@@ -323,6 +331,7 @@ export class Game {
   clearLevel() {
     // Pending fail timers are dropped with the level, so the flag must go too.
     this.failing = false;
+    this.glitchT = 0;
     voice.stop();
     for (const s of Object.values(this.sys)) s.clear?.(this);
     this.footprints = null;
@@ -430,6 +439,7 @@ export class Game {
   fail(kind = 'default') {
     if (this.failing) return;
     this.failing = true;
+    this.stats.continues = (this.stats.continues ?? 0) + 1;
     this.input.exitLock();
     audio.playMusic(null);
     const seenLines = kind === 'seen_by_family' && this.level?.seenKey ? LINES[this.level.seenKey] : null;
@@ -607,7 +617,7 @@ export class Game {
     audio.setListener(this.camera.position, new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion));
     post.uDamage.value = Math.max(0, post.uDamage.value - dt * 1.5);
     post.uToxic.value = 0;
-    this.ui.update(dt);
+    if (!this.comics.active) this.ui.update(dt);
     this.hud.update(dt);
     this.hud.clear();
     if (this.inPlay && (!this.ui.screen || this.ui.screen.type === 'choice')) this.hud.draw(this);
@@ -656,7 +666,7 @@ export class Game {
       this.camera.updateMatrixWorld();
       sharedUniforms.uCutTarget.value.set(0, 9999, 0);
     }
-    player.obj.visible = this.cam.fp < 0.5 && !this.cinematic;
+    player.obj.visible = this.cam.fp < 0.5 && !this.cinematic && !player.hidden;
     player.shadow.position.set(player.pos.x, player.pos.y + 0.03, player.pos.z);
     this.playerLight?.pos.set(player.pos.x + 0.6, player.pos.y + 2.4, player.pos.z + 0.8);
 
@@ -715,6 +725,7 @@ export class Game {
   /** While a cutscene plays: the world keeps living but the player waits. */
   updateCutscene(dt) {
     this.cutscene.update(dt);
+    this.glitchT = Math.max(0, (this.glitchT ?? 0) - dt);
     this.tickTimers(dt);
     for (const d of this.doors) d.update(dt, this);
   }

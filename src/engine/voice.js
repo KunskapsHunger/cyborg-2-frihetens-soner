@@ -28,8 +28,9 @@ class VoicePlayer {
   /** Clip length in seconds (0 when unvoiced). */
   duration(id) { return this.has(id) ? this.index[id] : 0; }
 
+  /** Start loading clips; resolves when they are decoded (or failed). */
   preload(ids) {
-    for (const id of ids) if (this.has(id)) audio.load(`voice/${id}`);
+    return Promise.all(ids.filter((id) => this.has(id)).map((id) => audio.load(`voice/${id}`)));
   }
 
   /**

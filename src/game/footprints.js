@@ -24,6 +24,9 @@ export class Footprints {
     this.lastPos = null;
     this.left = false;
     this.fillTime = FILL_TIME;
+    // Prints get increasing ids; followers store ids, not array indices,
+    // because filled-in prints are shifted off the front of the array.
+    this.seq = 0;
   }
 
   clear() {
@@ -59,7 +62,7 @@ export class Footprints {
     mesh.position.set(x, y, z);
     mesh.rotation.set(0, yaw, 0);
     mesh.scale.setScalar(scale);
-    this.prints.push({ mesh, x, z, yaw, t: 0 });
+    this.prints.push({ mesh, x, z, yaw, t: 0, id: this.seq++ });
   }
 
   update(dt) {
@@ -72,21 +75,23 @@ export class Footprints {
     while (this.prints.length && this.prints[0].t > this.fillTime) this.pool.push(this.prints.shift().mesh);
   }
 
-  /** Fresh print near a point, or null. Returns the index so a follower can walk the trail. */
+  /** Id of a fresh print near a point, or -1, so a follower can walk the trail. */
   noticeAt(x, z) {
     for (let i = this.prints.length - 1; i >= 0; i--) {
       const p = this.prints[i];
       if (p.t > this.fillTime * 0.7) continue;
-      if (Math.hypot(p.x - x, p.z - z) < NOTICE_RANGE) return i;
+      if (Math.hypot(p.x - x, p.z - z) < NOTICE_RANGE) return p.id;
     }
     return -1;
   }
 
-  /** The print a follower should head to next, a few steps along the trail. */
-  nextAlong(index, lookahead = 4) {
-    const i = Math.min(this.prints.length - 1, index + lookahead);
-    return i >= 0 ? { index: i, x: this.prints[i].x, z: this.prints[i].z } : null;
+  /** The print a follower should head to next, a few steps after print `id`. */
+  nextAlong(id, lookahead = 4) {
+    const at = this.prints.findIndex((p) => p.id >= id);
+    if (at < 0) return null;
+    const p = this.prints[Math.min(this.prints.length - 1, at + lookahead)];
+    return { index: p.id, x: p.x, z: p.z };
   }
 
-  get newestIndex() { return this.prints.length - 1; }
+  get newestId() { return this.prints.length ? this.prints[this.prints.length - 1].id : -1; }
 }
